@@ -13,6 +13,8 @@ args, _ = parser.parse_known_args()
 
 master_dataset_path = args.master_dataset_path
 output_path = args.output_path
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
 
 # from mimic-extract
 vitals_valid_range = {
