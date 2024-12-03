@@ -10,6 +10,8 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.utils import Sequence
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import tensorflow as tf
+
 import collections
 
 def convert_str_to_float(x):
@@ -36,12 +38,12 @@ def read_edstays_table(edstays_table_path):
     return df_edstays
 
 def read_patients_table(patients_table_path):
-    df_patients = pd.read_csv(patients_table_path)
+    df_patients = pd.read_parquet(patients_table_path)
     df_patients['dod'] = pd.to_datetime(df_patients['dod'])
     return df_patients
 
 def read_admissions_table(admissions_table_path):
-    df_admissions = pd.read_csv(admissions_table_path)
+    df_admissions = pd.read_parquet(admissions_table_path)
     df_admissions = df_admissions.rename(columns={"race": "ethnicity"})
     df_admissions =  df_admissions[['subject_id', 'hadm_id', 'admittime', 'dischtime', 'deathtime','ethnicity', 'edregtime','edouttime', 'insurance']]
     df_admissions['admittime'] = pd.to_datetime(df_admissions['admittime'])
@@ -50,7 +52,7 @@ def read_admissions_table(admissions_table_path):
     return df_admissions
 
 def read_icustays_table(icustays_table_path):
-    df_icu = pd.read_csv(icustays_table_path)
+    df_icu = pd.read_parquet(icustays_table_path)
     df_icu['intime'] = pd.to_datetime(df_icu['intime'])
     df_icu['outtime'] = pd.to_datetime(df_icu['outtime'])
     return df_icu
@@ -64,7 +66,7 @@ def read_triage_table(triage_table_path):
     return df_triage
 
 def read_diagnoses_table(diagnoses_table_path):
-    df_diagnoses = pd.read_csv(diagnoses_table_path)
+    df_diagnoses = pd.read_parquet(diagnoses_table_path)
     return df_diagnoses
 
 def read_vitalsign_table(vitalsign_table_path):
@@ -275,15 +277,25 @@ def generate_past_icu_visits(df_master, df_icustays, timerange):
 
 
 def generate_future_ed_visits(df_master, next_ed_visit_timerange):
+    """
+        Notes:
+            - ED visits resulting in hospital admission are excluded, as the focus is on cases where
+              patients were incorrectly not admitted to the hospital. This differs from the approach
+              outlined in the ED-BENCHMARK paper.
+
+        Reference from the ED-BENCHMARK paper:
+            "The ED reattendance outcome refers to a patient’s return visit to the ED within 72 hours
+            after their previous discharge. It is a widely used indicator of the quality of care and
+            patient safety, believed to reflect cases where patients may not have been adequately
+            triaged during their initial emergency visit."
+    """
+
     N = len(df_master)
     time_of_next_ed_visit = [float("NaN") for _ in range(N)]
     time_to_next_ed_visit = [float("NaN") for _ in range(N)]
     outcome_ed_revisit = [False for _ in range(N)]
 
     timerange_delta = timedelta(days = next_ed_visit_timerange)
-
-    curr_subject=None
-    next_subject=None
 
     def get_future_ed_visits(row):
         i = row.name
@@ -906,7 +918,7 @@ class LSTMDataGenerator(Sequence):
         for i in range(batch_size):
             x2.append(df_batch[df_batch['stay_id'] == stay_ids[i]][self.x2_cols].to_numpy())
         padded_x2 = pad_sequences(x2, padding='post')
-        return [x1, padded_x2.astype(np.float64)], y
+        return (tf.convert_to_tensor(x1), tf.convert_to_tensor(padded_x2.astype(np.float64))), tf.convert_to_tensor(y)
 
 
 def get_lstm_data_gen(df_train, df_test, df_vitalsign, variable, outcome, batch_size=200):

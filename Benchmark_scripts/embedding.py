@@ -4,28 +4,34 @@ from tensorflow.keras import optimizers, metrics, layers, Model
 import numpy as np
 import time
 
-vocabulary_map = {'v9_3digit':5571, 'v9':5679, 'v10': 7930}
+vocabulary_map = {'v9_3digit':8597, 'v9':8656, 'v10': 14954}
 
 class EmbeddingDataGen(tf.keras.utils.Sequence):
-    
+
     def __init__(self, demograph, icd, Y,
                  batch_size,
                  shuffle=True):
+        super().__init__()
         self.demograph = demograph
         self.icd = icd
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.Y=Y
         self.n = len(self.Y)
-    
+
     def __getitem__(self, index):
         start = index*self.batch_size
         end = min(start+self.batch_size, self.n)
         max_len = max([len(l) for l in self.icd[start:end]])
         icds = np.full((end-start, max_len), -1)
-        for i in range(start, end): 
+        for i in range(start, end):
             icds[i-start, :len(self.icd[i])] = self.icd[i]
-        return [self.demograph[start:end,:], icds+1], self.Y[start:end]
+
+        demograph_batch = tf.convert_to_tensor(self.demograph[start:end, :], dtype=tf.float32)
+        icd_batch = tf.convert_to_tensor(icds + 1, dtype=tf.int64)
+        labels = tf.convert_to_tensor(self.Y[start:end], dtype=tf.float32)
+
+        return (demograph_batch, icd_batch), labels, labels # TODO This labels labels is probably wrong!!!
 
     def __len__(self):
         return int(np.ceil(self.n / self.batch_size))
@@ -36,13 +42,26 @@ def icd_list_onehot(icd_list, unique_codes = 12683):
         onehot[i][icd_row]=1
     return onehot
 
+class SumLayer(layers.Layer):
+    def __init__(self, axis, **kwargs):
+        super(SumLayer, self).__init__(**kwargs)
+        self.axis = axis
+
+    def call(self, inputs):
+        print(f"Input shape: {inputs.shape}")  # Debug: print input shape
+        result = tf.reduce_sum(inputs, axis=self.axis)
+        print(f"Result shape: {result.shape}")  # Debug: print output shape
+
+        return result
+
 def create_embedding_model(vocabulary, demographic_size, embedding_dim=1024):
     # Receive the user as an input.
-    demograph_input = layers.Input(name="demograph_input", shape=(demographic_size))
-    icd_input = layers.Input(name="icd_input", shape=(vocabulary))
+    demograph_input = layers.Input(name="demograph_input", shape=(demographic_size,))
+    icd_input = layers.Input(name="icd_input", shape=(vocabulary,))
     # Get user embedding.
     icd_embedding = layers.Embedding(vocabulary+1, embedding_dim, mask_zero=True)(icd_input)
-    icd_embedding_sum = keras.backend.sum(icd_embedding, axis=1)
+    masked = layers.Masking(mask_value=0)(icd_embedding)
+    icd_embedding_sum = layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(masked)
     icd_fc = layers.Dense(256, activation='relu')(icd_embedding_sum)
     concat = layers.Concatenate(axis=1)([icd_fc, demograph_input])
     fc1 = layers.Dense(128, activation='relu')(concat)
