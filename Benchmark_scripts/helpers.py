@@ -917,7 +917,7 @@ class LSTMDataGenerator(Sequence):
         x2 = []
         for i in range(batch_size):
             x2.append(df_batch[df_batch['stay_id'] == stay_ids[i]][self.x2_cols].to_numpy())
-        padded_x2 = pad_sequences(x2, padding='post')
+        padded_x2 = pad_sequences(x2, maxlen=30, padding='post')
         return (tf.convert_to_tensor(x1), tf.convert_to_tensor(padded_x2.astype(np.float64))), tf.convert_to_tensor(y)
 
 

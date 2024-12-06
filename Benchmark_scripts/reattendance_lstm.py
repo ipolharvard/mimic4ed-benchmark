@@ -4,6 +4,7 @@ import random
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import helpers
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras import optimizers, metrics
@@ -76,14 +77,10 @@ result_list = []
 resample_freq = '1H'  # '30T'
 df_vitalsign = pd.read_csv(os.path.join(path, 'ed_vitalsign_' + resample_freq + '_resampled.csv'))
 # %%
-import importlib
 import helpers
 
-importlib.reload(helpers)
 train_data_gen, test_data_gen = helpers.get_lstm_data_gen(df_train, df_test, df_vitalsign, variable, outcome)
 
-
-# %%
 @register_keras_serializable()
 class LSTM_MLP(tf.keras.Model):
     def __init__(self):
@@ -117,7 +114,6 @@ print('Training time:', runtime, 'seconds')
 lstm.save('72h_ed_revisit_lstm.keras')
 # %%
 print("LSTM:")
-lstm = load_model('72h_ed_revisit_lstm.keras')
 probs = lstm.predict(test_data_gen)
 result = PlotROCCurve(probs, y_test, ci=confidence_interval, random_seed=random_seed)
 results = ["LSTM"]
