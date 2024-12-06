@@ -78,7 +78,7 @@ model.compile(loss='binary_crossentropy',
 runtime = 1063.299 # to be updated
 if not load_model:
         start = time.time()
-        model.fit(train_gen, epochs=100)
+        model.fit(train_gen, epochs=10)
         runtime = time.time()-start
         print('Training time:', runtime, 'seconds')
 if save_model:
@@ -92,7 +92,7 @@ results.append(runtime)
 print(results)
 
 result_df = pd.DataFrame([results], columns=['Model', 'auroc', 'ap', 'sensitivity', 'specificity', 'threshold', 'lower_auroc', 'upper_auroc', 'std_auroc', 'lower_ap', 'upper_ap', 'std_ap', 'lower_sensitivity', 'upper_sensitivity', 'std_sensitivity', 'lower_specificity', 'upper_specificity', 'std_specificity', 'runtime'])
-result_df.to_csv(os.path.join(path, 'task1/results_med2vec.csv'), index=False)
+result_df.to_csv(os.path.join(path, 'task2/results_med2vec.csv'), index=False)
 result_df = result_df.round(3)
 formatted_result_df = pd.DataFrame()
 formatted_result_df[['Model', 'Threshold']] = result_df[['Model', 'threshold']]
@@ -105,4 +105,4 @@ formatted_result_df['Sensitivity'] = result_df['sensitivity'].astype(str) + ' ('
 formatted_result_df['Specificity'] = result_df['specificity'].astype(str) + ' (' + result_df['lower_specificity'].astype(str) + \
                                      '-' + result_df['upper_specificity'].astype(str) + ')'
 formatted_result_df[['Runtime']] = result_df[['runtime']]
-formatted_result_df.to_csv(os.path.join(path, 'task1/results_med2vec_form.csv'), index=False)
+formatted_result_df.to_csv(os.path.join(path, 'task2/results_med2vec_form.csv'), index=False)

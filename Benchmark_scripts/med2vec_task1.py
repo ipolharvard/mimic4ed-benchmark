@@ -78,7 +78,7 @@ model.compile(loss='binary_crossentropy',
 runtime = 1063.299 # to be updated
 if not load_model:
         start = time.time()
-        model.fit(train_gen, epochs=100)
+        model.fit(train_gen, epochs=10)
         runtime = time.time()-start
         print('Training time:', runtime, 'seconds')
 if save_model:
