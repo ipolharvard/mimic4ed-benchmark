@@ -31,7 +31,7 @@ class EmbeddingDataGen(tf.keras.utils.Sequence):
         icd_batch = tf.convert_to_tensor(icds + 1, dtype=tf.int64)
         labels = tf.convert_to_tensor(self.Y[start:end], dtype=tf.float32)
 
-        return (demograph_batch, icd_batch), labels, labels # TODO This labels labels is probably wrong!!!
+        return (demograph_batch, icd_batch), labels
 
     def __len__(self):
         return int(np.ceil(self.n / self.batch_size))
@@ -57,11 +57,10 @@ class SumLayer(layers.Layer):
 def create_embedding_model(vocabulary, demographic_size, embedding_dim=1024):
     # Receive the user as an input.
     demograph_input = layers.Input(name="demograph_input", shape=(demographic_size,))
-    icd_input = layers.Input(name="icd_input", shape=(vocabulary,))
+    icd_input = layers.Input(name="icd_input", shape=(None,))
     # Get user embedding.
     icd_embedding = layers.Embedding(vocabulary+1, embedding_dim, mask_zero=True)(icd_input)
-    masked = layers.Masking(mask_value=0)(icd_embedding)
-    icd_embedding_sum = layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(masked)
+    icd_embedding_sum = layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(icd_embedding)
     icd_fc = layers.Dense(256, activation='relu')(icd_embedding_sum)
     concat = layers.Concatenate(axis=1)([icd_fc, demograph_input])
     fc1 = layers.Dense(128, activation='relu')(concat)

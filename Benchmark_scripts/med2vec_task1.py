@@ -63,7 +63,7 @@ df_test_embed = pd.merge(df_test, df_icd_encode[['stay_id', 'icd_encoded_list']]
 
 train_gen, test_gen = embedding.setup_embedding_data(df_train_embed, df_test_embed, X_train, y_train, X_test, y_test, batch_size)
 
-load_model = None#"embedding_hospitalization_"+version
+load_model = None
 save_model = "embedding_hospitalization_"+version +".keras"
 
 if load_model:
@@ -90,3 +90,19 @@ results = ["Med2Vec"]
 results.extend(result)
 results.append(runtime)
 print(results)
+
+result_df = pd.DataFrame([results], columns=['Model', 'auroc', 'ap', 'sensitivity', 'specificity', 'threshold', 'lower_auroc', 'upper_auroc', 'std_auroc', 'lower_ap', 'upper_ap', 'std_ap', 'lower_sensitivity', 'upper_sensitivity', 'std_sensitivity', 'lower_specificity', 'upper_specificity', 'std_specificity', 'runtime'])
+result_df.to_csv(os.path.join(path, 'task1/results_med2vec.csv'), index=False)
+result_df = result_df.round(3)
+formatted_result_df = pd.DataFrame()
+formatted_result_df[['Model', 'Threshold']] = result_df[['Model', 'threshold']]
+formatted_result_df['AUROC'] = result_df['auroc'].astype(str) + ' (' + result_df['lower_auroc'].astype(str) + \
+                               '-' + result_df['upper_auroc'].astype(str) + ')'
+formatted_result_df['AUPRC'] = result_df['ap'].astype(str) + ' (' + result_df['lower_ap'].astype(str) + \
+                               '-' + result_df['upper_ap'].astype(str) + ')'
+formatted_result_df['Sensitivity'] = result_df['sensitivity'].astype(str) + ' (' + result_df['lower_sensitivity'].astype(str) + \
+                                     '-' + result_df['upper_sensitivity'].astype(str) + ')'
+formatted_result_df['Specificity'] = result_df['specificity'].astype(str) + ' (' + result_df['lower_specificity'].astype(str) + \
+                                     '-' + result_df['upper_specificity'].astype(str) + ')'
+formatted_result_df[['Runtime']] = result_df[['runtime']]
+formatted_result_df.to_csv(os.path.join(path, 'task1/results_med2vec_form.csv'), index=False)
