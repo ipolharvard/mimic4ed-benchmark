@@ -1,4 +1,4 @@
-from scripts.helpers import run_benchmark_taskMIMIC-IV-ED Benchmark
+MIMIC-IV-ED Benchmark
 =========================
 
 This is an updated version of MIMIC-IV-ED benchmark based
