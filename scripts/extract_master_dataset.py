@@ -129,7 +129,7 @@ extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange
 
 # Resampling vitalsigns
 logger.info("Resampling vitalsign")
-resample_vitalsign(df_master, output_path)
+resample_vitalsign(df_vitalsign, output_path)
 
 # Merging with vitalsign info
 logger.info("Merging with vitalsign info")
