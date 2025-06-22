@@ -146,23 +146,35 @@ def add_ed_los(df_master):
     return df_master
 
 
-def add_outcome_icu_transfer(df_master, df_icustays, timerange):
-    timerange_delta = timedelta(hours=timerange)
-    df_icustays_sorted = df_icustays[['subject_id', 'hadm_id', 'intime']].sort_values('intime')
-    df_icustays_keep_first = df_icustays_sorted.groupby('hadm_id').first().reset_index()
-    df_master_icu = pd.merge(df_master, df_icustays_keep_first, on=['subject_id', 'hadm_id'], how='left',
-                             suffixes=('', '_icu'))
-    time_diff = (df_master_icu['intime_icu'] - df_master_icu['outtime'])
-    df_master_icu['time_to_icu_transfer'] = time_diff
-    df_master_icu[''.join(['outcome_icu_transfer_', str(timerange), 'h'])] = time_diff <= timerange_delta
-    # df_master_icu.drop(['intime_icu', 'time_to_icu_transfer'],axis=1, inplace=True)
-    return df_master_icu
+def add_outcome_icu_transfer(df_master: pd.DataFrame, df_icustays: pd.DataFrame, timerange):
+    """Treat ICU admission and death as critical outcome."""
+
+    # get the first ICU of each hospitalization
+    df_first_icustays = (
+        df_icustays[['subject_id', 'hadm_id', 'intime']]
+        .sort_values(['subject_id', 'intime'])
+        .groupby('hadm_id', sort=False, as_index=False)
+        .first()
+    )
+
+    df_master_icu = pd.merge(df_master, df_first_icustays, on=['subject_id', 'hadm_id'], suffixes=("", '_icu'),
+                             how="left")
+
+    critical_outcome_time = df_master_icu["dod"].where(
+        (df_master_icu["intime"] < df_master_icu["dod"]) & (df_master_icu["dod"] < df_master_icu["intime_icu"]),
+        df_master_icu["intime_icu"]
+    )
+    df_master_icu["time_to_critical_outcome"] = (critical_outcome_time - df_master_icu['intime'])
+    df_master_icu[f"critical_outcome_{timerange}h"] = (
+            df_master_icu["time_to_critical_outcome"] <= timedelta(hours=timerange)
+    )
+    return df_master_icu.drop(columns=['intime_icu'])
 
 
 def fill_na_ethnicity(df_master):  # requires df_master to be sorted
     N = len(df_master)
     ethnicity_list = [float("NaN") for _ in range(N)]
-    ethnicity_dict = {}  # dict to store subejct ethnicity
+    ethnicity_dict = {}  # dict to store subject ethnicity
 
     def get_filled_ethnicity(row):
         i = row.name
@@ -316,7 +328,7 @@ def generate_past_icu_visits(df_master, df_icustays, timerange):
     return df_master
 
 
-def generate_future_ed_visits(df_master, next_ed_visit_timerange):
+def generate_future_ed_visits(df_master: pd.DataFrame, next_ed_visit_timerange: int):
     """
         Notes:
             - ED visits resulting in hospital admission are excluded, as the focus is on cases where
@@ -337,10 +349,10 @@ def generate_future_ed_visits(df_master, next_ed_visit_timerange):
 
     timerange_delta = timedelta(days=next_ed_visit_timerange)
 
+    df_master.sort_values(['subject_id', 'intime', 'outtime'], inplace=True, ignore_index=True)
+
     def get_future_ed_visits(row):
         i = row.name
-        if i % 10000 == 0:
-            print('Process: %d/%d' % (i, N), end='\r')
         curr_subject = row['subject_id']
         next_subject = df_master['subject_id'][i + 1] if i < (N - 1) else None
 
@@ -353,12 +365,12 @@ def generate_future_ed_visits(df_master, next_ed_visit_timerange):
             time_to_next_ed_visit[i] = next_intime_diff
             outcome_ed_revisit[i] = next_intime_diff < timerange_delta
 
+
     df_master.apply(get_future_ed_visits, axis=1)
-    print('Process: %d/%d' % (N, N), end='\r')
 
     df_master.loc[:, 'next_ed_visit_time'] = time_of_next_ed_visit
     df_master.loc[:, 'next_ed_visit_time_diff'] = time_to_next_ed_visit
-    df_master.loc[:, ''.join(['outcome_ed_revisit_', str(next_ed_visit_timerange), "d"])] = outcome_ed_revisit
+    df_master.loc[:, f"outcome_ed_revisit_{next_ed_visit_timerange}d"] = outcome_ed_revisit
 
     return df_master
 
@@ -375,7 +387,7 @@ def generate_numeric_timedelta(df_master):
             print('Process: %d/%d' % (i, N), end='\r')
         curr_subject = row['subject_id']
         curr_ed_los = row['ed_los']
-        curr_time_to_icu_transfer = row['time_to_icu_transfer']
+        curr_time_to_icu_transfer = row['time_to_critical_outcome']
         curr_next_ed_visit_time_diff = row['next_ed_visit_time_diff']
 
         ed_los_hours[i] = round(curr_ed_los.total_seconds() / (60 * 60), 2) if not pd.isna(curr_ed_los) else curr_ed_los

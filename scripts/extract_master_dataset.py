@@ -7,32 +7,48 @@ from medcode_utils import commorbidity, extract_icd_list
 
 parser = argparse.ArgumentParser(description='Extract per-subject data from MIMIC-III CSV files.')
 
-parser.add_argument('--mimic4_path', type=str, help='Directory containing the main MIMIC-IV subdirectories: core, ed, hosp, icu, ed',required=True)
+parser.add_argument('--mimic4_path', type=str,
+                    help='Directory containing the main MIMIC-IV subdirectories: core, ed, hosp, icu, ed',
+                    required=True)
 parser.add_argument('--output_path', type=str, help='Output directory for "master_dataset.csv"', required=True)
-parser.add_argument('--icu_transfer_timerange', type=int, help='Timerange in hours for ICU transfer outcome', default=12)
-parser.add_argument('--next_ed_visit_timerange', type=int, help='Timerange in days days for next ED visit outcome', default=3)
+parser.add_argument('--icu_transfer_timerange', type=int, help='Timerange in hours for ICU transfer outcome',
+                    default=12)
+parser.add_argument('--next_ed_visit_timerange', type=int, help='Timerange in days days for next ED visit outcome',
+                    default=3)
 
 args, _ = parser.parse_known_args()
 
 mimic_iv_path = args.mimic4_path
 output_path = args.output_path
-icu_transfer_timerange = args.icu_transfer_timerange 
-next_ed_visit_timerange = args.next_ed_visit_timerange 
+icu_transfer_timerange = args.icu_transfer_timerange
+next_ed_visit_timerange = args.next_ed_visit_timerange
 
 mimic_iv_core_path = os.path.join(mimic_iv_path, 'core')
-mimic_iv_hosp_path = os.path.join(mimic_iv_path , 'hosp')   
+mimic_iv_hosp_path = os.path.join(mimic_iv_path, 'hosp')
 mimic_iv_icu_path = os.path.join(mimic_iv_path, 'icu')
 mimic_iv_ed_path = os.path.join(mimic_iv_path, 'ed')
 
-   
-icu_filename_dict = {"chartevents":"chartevents.parquet","datetimeevents":"datetimeevents.parquet","d_items":"d_items.parquet","icustays":"icustays.parquet","inputevents":"inputevents.parquet","outputevents":"outputevents.parquet","procedureevents":"procedureevents.parquet"}
-core_filename_dict = {"patients":"patients.parquet", "admissions":"admissions.parquet", "transfers":"transfers.parquet"}
-hosp_filename_dict = {"d_hcpcs":"d_hcpcs.parquet","d_icd_diagnoses":"d_icd_diagnoses.parquet","d_labitems":"d_labitems.parquet","emar":"emar.parquet","hcpcsevents":"hcpcsevents.parquet","microbiologyevents":"microbiologyevents.parquet","poe":"poe.parquet","prescriptions":"prescriptions.parquet","services":"services.parquet","diagnoses_icd":"diagnoses_icd.parquet","d_icd_procedures":"d_icd_procedures.parquet","drgcodes":"drgcodes.parquet","emar_detail":"emar_detail.parquet","labevents":"labevents.parquet","pharmacy":"pharmacy.parquet","poe_detail":"poe_detail.parquet","procedures_icd":"procedures_icd.parquet"}
-ed_filename_dict = {'diagnosis':'diagnosis.csv.gz', 'edstays':'edstays.csv.gz',  'medrecon':'medrecon.csv.gz',  'pyxis':'pyxis.csv.gz',  'triage':'triage.csv.gz',  'vitalsign':'vitalsign.csv.gz'}
+icu_filename_dict = {"chartevents": "chartevents.parquet", "datetimeevents": "datetimeevents.parquet",
+                     "d_items": "d_items.parquet", "icustays": "icustays.parquet", "inputevents": "inputevents.parquet",
+                     "outputevents": "outputevents.parquet", "procedureevents": "procedureevents.parquet"}
+core_filename_dict = {"patients": "patients.parquet", "admissions": "admissions.parquet",
+                      "transfers": "transfers.parquet"}
+hosp_filename_dict = {"d_hcpcs": "d_hcpcs.parquet", "d_icd_diagnoses": "d_icd_diagnoses.parquet",
+                      "d_labitems": "d_labitems.parquet", "emar": "emar.parquet", "hcpcsevents": "hcpcsevents.parquet",
+                      "microbiologyevents": "microbiologyevents.parquet", "poe": "poe.parquet",
+                      "prescriptions": "prescriptions.parquet", "services": "services.parquet",
+                      "diagnoses_icd": "diagnoses_icd.parquet", "d_icd_procedures": "d_icd_procedures.parquet",
+                      "drgcodes": "drgcodes.parquet", "emar_detail": "emar_detail.parquet",
+                      "labevents": "labevents.parquet", "pharmacy": "pharmacy.parquet",
+                      "poe_detail": "poe_detail.parquet", "procedures_icd": "procedures_icd.parquet"}
+ed_filename_dict = {'diagnosis': 'diagnosis.csv.gz', 'edstays': 'edstays.csv.gz', 'medrecon': 'medrecon.csv.gz',
+                    'pyxis': 'pyxis.csv.gz', 'triage': 'triage.csv.gz', 'vitalsign': 'vitalsign.csv.gz'}
 
-complaint_dict = {"chiefcom_chest_pain" : "chest pain", "chiefcom_abdominal_pain" : "abdominal pain|abd pain", 
-"chiefcom_headache" : "headache|lightheaded", "chiefcom_shortness_of_breath" : "breath", "chiefcom_back_pain" : "back pain", "chiefcom_cough" : "cough", 
-"chiefcom_nausea_vomiting" : "nausea|vomit", "chiefcom_fever_chills" : "fever|chill", "chiefcom_syncope" :"syncope", "chiefcom_dizziness" : "dizz"}
+complaint_dict = {"chiefcom_chest_pain": "chest pain", "chiefcom_abdominal_pain": "abdominal pain|abd pain",
+                  "chiefcom_headache": "headache|lightheaded", "chiefcom_shortness_of_breath": "breath",
+                  "chiefcom_back_pain": "back pain", "chiefcom_cough": "cough",
+                  "chiefcom_nausea_vomiting": "nausea|vomit", "chiefcom_fever_chills": "fever|chill",
+                  "chiefcom_syncope": "syncope", "chiefcom_dizziness": "dizz"}
 
 ## Reading main tables
 logger.info("Reading main tables...")
@@ -54,11 +70,10 @@ df_medrecon = read_pyxis_table(os.path.join(mimic_iv_ed_path, ed_filename_dict['
 logger.info("Reading data for ICD...")
 df_diagnoses = read_diagnoses_table(os.path.join(mimic_iv_hosp_path, hosp_filename_dict['diagnoses_icd']))
 
-
 ## Merging patients -> merging admissions -> merging triage -> master
 logger.info("Merging patients -> merging admissions -> merging triage -> master...")
-df_master = merge_edstays_patients_on_subject(df_edstays ,df_patients)
-df_master = merge_edstays_admissions_on_subject(df_master ,df_admissions)
+df_master = merge_edstays_patients_on_subject(df_edstays, df_patients)
+df_master = merge_edstays_admissions_on_subject(df_master, df_admissions)
 
 ## Adding age, mortality and ICU transfer outcome
 logger.info("Adding age, mortality and ICU transfer outcome")
@@ -67,7 +82,7 @@ df_master = add_inhospital_mortality(df_master)
 df_master = add_ed_los(df_master)
 df_master = add_outcome_icu_transfer(df_master, df_icustays, icu_transfer_timerange)
 df_master['outcome_hospitalization'] = ~pd.isnull(df_master['hadm_id'])
-df_master['outcome_critical'] = df_master['outcome_inhospital_mortality'] | df_master[''.join(['outcome_icu_transfer_', str(icu_transfer_timerange), 'h'])]
+df_master['outcome_critical'] = df_master[f"critical_outcome_{icu_transfer_timerange}h"]
 
 # Sort Master table for further process
 logger.info("Sort Master table for further process")
@@ -100,11 +115,11 @@ df_master = generate_past_admissions(df_master, df_admissions, timerange=365)
 
 ## Generate past icu visits
 logger.info("Generate past icu visits timerange=30")
-df_master  = generate_past_icu_visits(df_master, df_icustays, timerange=30)
+df_master = generate_past_icu_visits(df_master, df_icustays, timerange=30)
 logger.info("Generate past icu visits timerange=90")
-df_master  = generate_past_icu_visits(df_master, df_icustays, timerange=90)
+df_master = generate_past_icu_visits(df_master, df_icustays, timerange=90)
 logger.info("Generate past icu visits timerange=365")
-df_master  = generate_past_icu_visits(df_master, df_icustays, timerange=365)
+df_master = generate_past_icu_visits(df_master, df_icustays, timerange=365)
 
 ## Generate numeric timedelta variables
 logger.info("Generate numeric timedelta variables")
@@ -112,7 +127,7 @@ df_master = generate_numeric_timedelta(df_master)
 
 ## Mergining with triage table, Comment: revise the variable names? triage_*
 logger.info("Mergining with triage table")
-df_master = merge_edstays_triage_on_subject(df_master, df_triage) ## note change to merge master 
+df_master = merge_edstays_triage_on_subject(df_master, df_triage)  ## note change to merge master
 
 ## Encoding 10 chief complaints
 logger.info("Encoding 10 chief complaints")
@@ -120,12 +135,12 @@ df_master = encode_chief_complaints(df_master, complaint_dict)
 
 # This function takes about 10 min
 logger.info("Comorbidity; This function takes about 10 min")
-df_master = commorbidity(df_master, df_diagnoses, df_admissions, timerange = 356*5)
+df_master = commorbidity(df_master, df_diagnoses, df_admissions, timerange=356 * 5)
 
 logger.info("Extract icd lists")
-extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange = 356*5, version = 'v9')
-extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange = 356*5, version = 'v9_3digit')
-extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange = 356*5, version = 'v10')
+extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange=356 * 5, version='v9')
+extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange=356 * 5, version='v9_3digit')
+extract_icd_list(df_edstays, df_diagnoses, df_admissions, output_path, timerange=356 * 5, version='v10')
 
 # Resampling vitalsigns
 logger.info("Resampling vitalsign")
