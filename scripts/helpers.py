@@ -1,9 +1,10 @@
 import collections
 import math
+import operator
 import os
 import re
-import time
 from datetime import timedelta
+from functools import reduce
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -364,7 +365,6 @@ def generate_future_ed_visits(df_master: pd.DataFrame, next_ed_visit_timerange: 
             time_of_next_ed_visit[i] = next_intime
             time_to_next_ed_visit[i] = next_intime_diff
             outcome_ed_revisit[i] = next_intime_diff < timerange_delta
-
 
     df_master.apply(get_future_ed_visits, axis=1)
 
@@ -1008,17 +1008,23 @@ class LSTMDataGenerator(Sequence):
         return math.ceil(len(self.main_df) / self.batch_size)
 
     def __getitem__(self, index):
-        df_batch = self.main_df.iloc[index * self.batch_size:(index + 1) * self.batch_size]
-        x1 = df_batch[self.x1_cols].to_numpy().astype(np.float64)
-        y = self.y_df.iloc[index * self.batch_size:(index + 1) * self.batch_size].to_numpy()
-        stay_ids = df_batch['stay_id'].to_numpy().astype(np.int64)
-        batch_size = len(df_batch)
+        batch_slice = slice(index * self.batch_size, (index + 1) * self.batch_size)
+
+        df_batch = self.main_df.iloc[batch_slice]
+
+        x1 = df_batch[self.x1_cols].values.astype(np.float32)
+        x1 = tf.convert_to_tensor(x1)
+
         df_batch = df_batch.merge(self.vitalsign_df, on='stay_id', how='left')
-        x2 = []
-        for i in range(batch_size):
-            x2.append(df_batch[df_batch['stay_id'] == stay_ids[i]][self.x2_cols].to_numpy())
-        padded_x2 = pad_sequences(x2, maxlen=30, padding='post')
-        return (tf.convert_to_tensor(x1), tf.convert_to_tensor(padded_x2.astype(np.float64))), tf.convert_to_tensor(y)
+
+        x2 = df_batch.groupby("stay_id")[self.x2_cols].apply(lambda df: df.fillna(0).values).tolist()
+        x2 = pad_sequences(x2, maxlen=30, padding='post').astype(np.float32)
+        x2 = tf.convert_to_tensor(x2)
+
+        y = self.y_df.iloc[batch_slice].values
+        y = tf.convert_to_tensor(y)
+
+        return (x1, x2), y
 
 
 def get_lstm_data_gen(df_train, df_test, df_vitalsign, variable, outcome, batch_size=200):
@@ -1044,7 +1050,6 @@ def get_lstm_data_gen(df_train, df_test, df_vitalsign, variable, outcome, batch_
 
     train_data_gen = LSTMDataGenerator(X_train, df_vitalsign, y_train, batch_size, x1_cols, x2_cols)
     test_data_gen = LSTMDataGenerator(X_test, df_vitalsign, y_test, batch_size, x1_cols, x2_cols)
-
     return train_data_gen, test_data_gen
 
 
@@ -1163,8 +1168,6 @@ def get_dataset_critical_outcome(df_train, df_test):
 
 
 def get_dataset_ed_reattendance(df_train, df_test):
-    df_train = df_train[(df_train['outcome_hospitalization'] == False)]
-    df_test = df_test[(df_test['outcome_hospitalization'] == False)].reset_index()
     variable = ["age", "gender",
 
                 "n_ed_30d", "n_ed_90d", "n_ed_365d", "n_hosp_30d", "n_hosp_90d",
@@ -1212,49 +1215,31 @@ def get_dataset(input_path: str, task: str):
     elif task == "critical_outcome":
         return *get_dataset_critical_outcome(df_train, df_test), df_train, df_test
     elif task == "ed_reattendance":
+        df_train = df_train[(df_train['outcome_hospitalization'] == False)]
+        df_test = df_test[(df_test['outcome_hospitalization'] == False)].reset_index()
+
         return *get_dataset_ed_reattendance(df_train, df_test), df_train, df_test
 
 
-def run_lr(X_train, y_train, X_test, y_test, ci, random_seed):
+def run_lr(X_train, y_train, X_test, y_test, ci, random_seed) -> dict:
     logreg = LogisticRegression(random_state=random_seed)
-    start = time.time()
     logreg.fit(X_train, y_train)
-    runtime = time.time() - start
     probs = logreg.predict_proba(X_test)
-    result = PlotROCCurve(probs[:, 1], y_test, ci=ci, random_seed=random_seed)
-
-    results = ["LR"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"LR": probs[:, 1]}
 
 
-def run_rf(X_train, y_train, X_test, y_test, ci, random_seed):
+def run_rf(X_train, y_train, X_test, y_test, ci, random_seed) -> dict:
     rf = RandomForestClassifier(random_state=random_seed)
-    start = time.time()
     rf.fit(X_train, y_train)
-    runtime = time.time() - start
     probs = rf.predict_proba(X_test)
-    result = PlotROCCurve(probs[:, 1], y_test, ci=ci, random_seed=random_seed)
-
-    results = ["RF"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"RF": probs[:, 1]}
 
 
 def run_gb(X_train, y_train, X_test, y_test, ci, random_seed):
     gb = GradientBoostingClassifier(random_state=random_seed)
-    start = time.time()
     gb.fit(X_train, y_train)
-    runtime = time.time() - start
     probs = gb.predict_proba(X_test)
-    result = PlotROCCurve(probs[:, 1], y_test, ci=ci, random_seed=random_seed)
-
-    results = ["GB"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"GB": probs[:, 1]}
 
 
 @register_keras_serializable()
@@ -1277,15 +1262,9 @@ def run_mlp(X_train, y_train, X_test, y_test, ci, random_seed):
                 optimizer=optimizers.Adam(learning_rate=0.001),
                 metrics=['accuracy', 'AUC', metrics.AUC(name='auprc', curve='PR'),
                          'TruePositives', 'TrueNegatives', 'Precision', 'Recall'])
-    start = time.time()
     mlp.fit(X_train.astype(np.float32), y_train, batch_size=200, epochs=20)
-    runtime = time.time() - start
     probs = mlp.predict(X_test.astype(np.float32))
-    result = PlotROCCurve(probs, y_test, ci=ci, random_seed=random_seed)
-    results = ["MLP"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"MLP": probs.squeeze()}
 
 
 def run_med2vec(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_test, task, input_path, output_path):
@@ -1307,17 +1286,11 @@ def run_med2vec(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_
                   optimizer=optimizers.Adam(learning_rate=0.001),
                   metrics=['accuracy', 'AUC', metrics.AUC(name='auprc', curve='PR'),
                            'TruePositives', 'TrueNegatives', 'Precision', 'Recall'])
-    start = time.time()
+
     model.fit(train_gen, epochs=10)
-    runtime = time.time() - start
     keras.models.save_model(model, os.path.join(output_path, save_model))
     output = model.predict(test_gen)
-    result = PlotROCCurve(output, y_test, ci=ci, random_seed=random_seed)
-
-    results = ["Med2Vec"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"Med2Vec": output.squeeze()}
 
 
 @register_keras_serializable()
@@ -1350,16 +1323,12 @@ def run_lstm(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_tes
                  metrics=['accuracy', 'AUC', metrics.AUC(name='auprc', curve='PR'),
                           'TruePositives', 'TrueNegatives', 'Precision', 'Recall'])
 
-    start = time.time()
+    model_path = os.path.join(output_path, '72h_ed_revisit_lstm.keras')
     lstm.fit(train_data_gen, batch_size=200, epochs=20, verbose=1)
-    runtime = time.time() - start
-    lstm.save(os.path.join(output_path, '72h_ed_revisit_lstm.keras'))
+    lstm.save(model_path)
+
     probs = lstm.predict(test_data_gen)
-    result = PlotROCCurve(probs, y_test, ci=ci, random_seed=random_seed)
-    results = ["LSTM"]
-    results.extend(result)
-    results.append(runtime)
-    return results
+    return {"LSTM": probs.squeeze()}
 
 
 def run_benchmark_task(X_train, y_train, X_test, y_test, df_train, df_test, task, input_path, output_path):
@@ -1369,63 +1338,45 @@ def run_benchmark_task(X_train, y_train, X_test, y_test, df_train, df_test, task
 
     print("Training Logistic Regression")
     result_list.append(run_lr(X_train, y_train, X_test, y_test, ci, random_seed))
-    print("Current results:")
-    print(format_results_and_save(result_list, task, output_path))
-
-    print("Training Random Forest")
-    result_list.append(run_rf(X_train, y_train, X_test, y_test, ci, random_seed))
-    print("Current results:")
-    print(format_results_and_save(result_list, task, output_path))
-
-    print("Training Gradient Boosting")
-    result_list.append(run_gb(X_train, y_train, X_test, y_test, ci, random_seed))
-    print("Current results:")
-    print(format_results_and_save(result_list, task, output_path))
-
-    print("Training MLP")
-    result_list.append(run_mlp(X_train, y_train, X_test, y_test, ci, random_seed))
-    print("Current results:")
-    print(format_results_and_save(result_list, task, output_path))
-
-    if task == "hospitalization" or task == "critical_outcome":
-        df_test["esi"] = -df_test["triage_acuity"]
-        result_list.append(get_score_performance("esi", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
-
-        result_list.append(get_score_performance("score_NEWS", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
-
-        result_list.append(get_score_performance("score_NEWS2", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
-
-        result_list.append(get_score_performance("score_REMS", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
-
-        result_list.append(get_score_performance("score_MEWS", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
-
-        result_list.append(get_score_performance("score_CART", ci, random_seed, y_test, df_test))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
 
     print("Training Med2Vec")
     result_list.append(
         run_med2vec(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_test, task, input_path,
                     output_path))
-    print("Current results:")
-    print(format_results_and_save(result_list, task, output_path))
+
+    print("Training Random Forest")
+    result_list.append(run_rf(X_train, y_train, X_test, y_test, ci, random_seed))
+
+    print("Training Gradient Boosting")
+    result_list.append(run_gb(X_train, y_train, X_test, y_test, ci, random_seed))
+
+    print("Training MLP")
+    result_list.append(run_mlp(X_train, y_train, X_test, y_test, ci, random_seed))
+
+    if task in ("hospitalization", "critical_outcome"):
+        df_test["esi"] = -df_test["triage_acuity"]
+        for score_name in ["esi", "score_NEWS", "score_NEWS2", "score_REMS", "score_MEWS", "score_CART"]:
+            result_list.append({score_name: df_test[score_name]})
 
     if task == "ed_reattendance":
-        print("Training Med2Vec")
+        print("Training LSTM")
         result_list.append(
-            run_lstm(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_test, input_path, output_path))
-        print("Current results:")
-        print(format_results_and_save(result_list, task, output_path))
+            run_lstm(X_train, y_train, X_test, y_test, ci, random_seed, df_train, df_test, input_path, output_path)
+        )
+
+    results = reduce(operator.or_, result_list, {}) if len(result_list) > 1 else result_list[0]
+    y_test.name = "boolean_value"
+    result_df = pd.concat(
+        [
+            df_test[["subject_id", "hadm_id", "stay_id", "intime", "outtime"]],
+            y_test,
+            pd.DataFrame(results),
+        ],
+        axis=1,
+    )
+
+    result_df.to_parquet(os.path.join(output_path, f'{task if task.startswith("ed_") else f"ed_{task}"}.parquet'),
+                         index=False)
 
 
 def get_score_performance(s, ci, random_seed, y_test, df_test):
